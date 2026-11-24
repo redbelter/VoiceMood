@@ -59,6 +59,23 @@ Add a Browser Source:
   transparent surround; no chroma-key filter needed
 - Leave "Shutdown source when not visible" off
 
+## VTube Studio bridge (mic on another PC)
+
+The server binds `0.0.0.0` by default, so the VTube Studio machine can poll
+`http://<mic-pc-ip>:5095/status`. On the VTS machine run:
+
+```powershell
+pip install websocket-client
+python vtbridge.py --status http://<mic-pc-ip>:5095/status
+```
+
+VTube Studio side: main config page → toggle **"Allow Plugin API access"**
+(port shown there; default 8001). First bridge run requests an auth token
+automatically (a one-time prompt inside VTS), caches it in `vts_token.json`,
+and reuses it. The bridge injects the `mouth` value into `MouthOpen` ~12x/s
+(API drops control if a value isn't refreshed within 1s). `--weight 0.7`
+blends with webcam face tracking instead of replacing it.
+
 ## Run
 
 ```powershell

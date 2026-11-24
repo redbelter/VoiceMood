@@ -424,6 +424,8 @@ def main():
 
     ap = argparse.ArgumentParser(description="voice mood tray + overlay")
     ap.add_argument("--port", type=int, default=5095)
+    ap.add_argument("--host", default="0.0.0.0",
+                    help="bind address; 0.0.0.0 so a second PC can poll /status")
     args = ap.parse_args()
 
     load_settings()
@@ -433,7 +435,7 @@ def main():
         feature_level=opensmile.FeatureLevel.Functionals,
     )
 
-    srv = ThreadingHTTPServer(("127.0.0.1", args.port), build_handler())
+    srv = ThreadingHTTPServer((args.host, args.port), build_handler())
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     print(f"voice-mood serving http://127.0.0.1:{args.port}/", flush=True)
 
