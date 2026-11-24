@@ -21,6 +21,7 @@ page designed for OBS Browser Sources. A tray icon reflects the current mood.
 |---|---|---|
 | excited | loud/fast + wide melody | amber |
 | cheerful | bright pitch, up-tempo | gold |
+| curious | bright, rising questioning melody | lilac |
 | warm | soft, bright, easy pace | rose |
 | focused | steady stream of words | blue |
 | driven | high output, steady pitch | teal-green |
