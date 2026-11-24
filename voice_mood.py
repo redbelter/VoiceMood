@@ -29,14 +29,19 @@ from PIL import Image, ImageDraw
 import pystray
 
 SR = 16000
-CHUNK_SECONDS = 2.0
+CHUNK_SECONDS = 2.0            # mood classification window
+FAST_SECONDS = 0.1             # mouth/level refresh window (~10 Hz)
 CALIBRATE_SECONDS = 10.0
+BLOCK = 1024                   # capture callback block (~64 ms)
+MOUTH_ALPHA = 0.5              # smoothing for mouth value per fast window
 HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS = os.path.join(HERE, "settings.json")
+TOKEN_FILE = os.path.join(HERE, "vts_token.json")
 
 STATE = {"mood": "neutral", "f0": 0.0, "spread": 0.0, "loud": 0.0,
          "loud_rel": 0.0, "voiced": 0.0, "db": -60.0, "mouth": 0.0, "ts": ""}
 DEV = {"id": None}          # None = system default device
+VTS = {"host": ""}          # VTube Studio API host; empty = bridge off
 LOCK = threading.Lock()
 REOPEN = threading.Event()
 
@@ -74,7 +79,10 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Voice Mood</ti
   <div id="lvl"><div id="meter"><div id="fill"></div></div><div id="db">-</div></div>
  </div>
 </div>
-<div id="panel"><select id="mic" onchange="pick(this.value)"></select></div>
+<div id="panel">
+ <select id="mic" onchange="pick(this.value)"></select>
+ <input id="vts" placeholder="VTuber host, e.g. 192.168.15.16" onchange="setVts(this.value)">
+</div>
 <script>
 const COLORS={excited:'#f2b134',cheerful:'#ffd166',focused:'#4ea1f7',calm:'#6fd3c7',tired:'#7a86c8',neutral:'#9aa5b5',idle:'#5b6472'};
 let target=0.2,cur=0.2,phase=0,last=0;
@@ -94,6 +102,9 @@ async function pick(v){
  await fetch('/device',{method:'POST',body:JSON.stringify({device:v==='-1'?null:+v})});
  setTimeout(tick,300);
 }
+async function setVts(v){
+ await fetch('/vts',{method:'POST',body:JSON.stringify({host:v})});
+}
 async function tick(){
  try{
   const r=await fetch('/status',{cache:'no-store'}); const s=await r.json();
@@ -111,6 +122,8 @@ async function tick(){
   document.getElementById('db').textContent=dbv.toFixed(1)+' dB';
   target=Math.max(0.08,Math.min(1,(s.voiced||0)*0.8+Math.max(0,s.loud_rel||0)*0.06));
   fillSel(s);
+  const vts=document.getElementById('vts');
+  if(vts&&document.activeElement!==vts)vts.value=s.vts||'';
  }catch(e){}
  setTimeout(tick,1000);
 }
@@ -295,6 +308,76 @@ def mouth_open(db):
     return max(0.0, min(1.0, (db + 50.0) / 40.0))
 
 
+def load_token():
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            return json.load(f).get("token")
+    except (OSError, ValueError):
+        return None
+
+
+def save_token(tok):
+    try:
+        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+            json.dump({"token": tok}, f)
+    except OSError:
+        pass
+
+
+def vts_bridge():
+    """Keep VTube Studio MouthOpen synced with the smoothed mouth value.
+
+    One process for everything: instead of running vtbridge.py separately,
+    the main app injects directly when a VTS host is set in the web panel.
+    """
+    from websocket import create_connection
+
+    def msg(mtype, data=None):
+        m = {"apiName": "VTubeStudioPublicAPI", "apiVersion": "1.0",
+             "requestID": "voicemood", "messageType": mtype}
+        if data is not None:
+            m["data"] = data
+        return json.dumps(m)
+
+    ws = None
+    while True:
+        host = VTS["host"]
+        if not host:
+            time.sleep(0.5)
+            continue
+        try:
+            if ws is None:
+                ws = create_connection(f"ws://{host}:8001", timeout=5)
+                token = load_token()
+                if not token:
+                    ws.send(msg("AuthenticationTokenRequest",
+                                {"pluginName": "VoiceMood",
+                                 "pluginDeveloper": "redbelter"}))
+                    token = json.loads(ws.recv())["data"]["authenticationToken"]
+                    save_token(token)
+                ws.send(msg("AuthenticationRequest",
+                            {"pluginName": "VoiceMood",
+                             "pluginDeveloper": "redbelter",
+                             "authenticationToken": token}))
+                ws.recv()
+            with LOCK:
+                mouth = STATE["mouth"]
+            ws.send(msg("InjectParameterDataRequest", {
+                "faceFound": False, "mode": "set",
+                "parameterValues": [{"id": "MouthOpen",
+                                     "value": round(mouth, 3)}]}))
+            ws.recv()
+        except Exception:
+            try:
+                if ws:
+                    ws.close()
+            except Exception:
+                pass
+            ws = None
+            time.sleep(1)
+        time.sleep(0.08)
+
+
 def stable_update(loud, pitch, spread, voiced, db, ts):
     """Feed one chunk: z-standardize, EMA-smooth, hold through pauses, commit
     a label change only after HOLD_MIN consecutive agreeing chunks. Sustained
@@ -302,8 +385,7 @@ def stable_update(loud, pitch, spread, voiced, db, ts):
     if voiced < 0.10:                       # pause — hold readings, count silence
         SILENT_CHUNKS[0] += 1
         with LOCK:
-            mouth = STATE["mouth"] * 0.6     # lips close while not speaking
-            STATE.update(db=db, mouth=mouth, ts=ts)
+            STATE.update(ts=ts)
             if SILENT_CHUNKS[0] >= IDLE_AFTER and STATE["mood"] != "idle":
                 STATE.update(mood="idle")
         return
@@ -322,9 +404,8 @@ def stable_update(loud, pitch, spread, voiced, db, ts):
     else:
         PENDING[:] = [cand, 1]
     with LOCK:
-        STATE.update(f0=pitch, spread=spread, loud=loud, db=db,
-                     mouth=mouth_open(db), loud_rel=SMOOTH["l"] * 4,
-                     voiced=SMOOTH["v"], ts=ts)
+        STATE.update(f0=pitch, spread=spread, loud=loud,
+                     loud_rel=SMOOTH["l"] * 4, voiced=SMOOTH["v"], ts=ts)
         if PENDING[1] >= HOLD_MIN and cand != STATE["mood"]:
             STATE.update(mood=cand)
 
@@ -344,6 +425,9 @@ def load_settings():
         dev = data.get("device")
         if isinstance(dev, int):
             DEV["id"] = dev
+        host = data.get("vts")
+        if isinstance(host, str) and host:
+            VTS["host"] = host
     except (OSError, ValueError):
         pass
 
@@ -351,7 +435,7 @@ def load_settings():
 def save_settings():
     try:
         with open(SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"device": DEV["id"]}, f)
+            json.dump({"device": DEV["id"], "vts": VTS["host"]}, f)
     except OSError:
         pass
 
@@ -360,6 +444,11 @@ def set_device(value):
     DEV["id"] = None if value in (None, "", -1) else int(value)
     save_settings()
     REOPEN.set()
+
+
+def set_vts(host):
+    VTS["host"] = (host or "").strip()
+    save_settings()
 
 
 def icon_image(hex_color):
@@ -401,6 +490,7 @@ def build_handler():
                 payload = dict(STATE)
             payload["devices"] = input_devices()
             payload["device"] = DEV["id"] if DEV["id"] is not None else -1
+            payload["vts"] = VTS["host"]
             if self.path.startswith("/status"):
                 self._send(json.dumps(payload).encode(), "application/json")
             else:
@@ -412,6 +502,8 @@ def build_handler():
                 body = json.loads(self.rfile.read(n) or b"{}")
                 if self.path.startswith("/device"):
                     set_device(body.get("device"))
+                elif self.path.startswith("/vts"):
+                    set_vts(body.get("host", ""))
             except (ValueError, TypeError):
                 pass
             self._send(b"ok", "text/plain")
@@ -453,18 +545,34 @@ def main():
 
     def capture_loop():
         chunk_n = int(SR * CHUNK_SECONDS)
+        fast_n = max(int(SR * FAST_SECONDS), 1)
         while True:
             REOPEN.clear()
             drain()
+            fast_buf = np.zeros(0, dtype=np.float32)
             buf = np.zeros(0, dtype=np.float32)
             cal = []
             baseline = None
+            mouth = 0.0
             try:
                 with sd.InputStream(samplerate=SR, channels=1, dtype="float32",
-                                    blocksize=chunk_n, callback=cb,
+                                    blocksize=BLOCK, callback=cb,
                                     device=DEV["id"]):
                     while not REOPEN.is_set():
-                        buf = np.concatenate([buf, q.get()])
+                        blk = q.get()
+                        fast_buf = np.concatenate([fast_buf, blk])
+                        buf = np.concatenate([buf, blk])
+                        # fast path: level + mouth openness ~10x/sec
+                        while len(fast_buf) >= fast_n:
+                            piece, fast_buf = fast_buf[:fast_n], fast_buf[fast_n:]
+                            db = min(0.0, 20.0 *
+                                     np.log10(max(rms(piece), 1e-6)))
+                            mouth += MOUTH_ALPHA * (mouth_open(db) - mouth)
+                            with LOCK:
+                                STATE.update(
+                                    db=db, mouth=round(mouth, 3),
+                                    ts=time.strftime("%H:%M:%S"))
+                        # slow path: mood classification every 2s chunk
                         if len(buf) < chunk_n:
                             continue
                         piece, buf = buf[:chunk_n], buf[chunk_n:]
@@ -476,10 +584,9 @@ def main():
                             continue
                         spread = pitch_spread(piece)
                         vratio = voiced_ratio(piece)
-                        db = min(0.0, 20.0 * np.log10(max(rms(piece), 1e-6)))
                         ts = time.strftime("%H:%M:%S")
                         stable_update(loud - baseline, pitch, spread, vratio,
-                                      db, ts)
+                                      0.0, ts)
                         with LOCK:
                             mood = STATE["mood"]
                         color = COLORS.get(mood, "#9aa5b5")
@@ -519,6 +626,7 @@ def main():
             pystray.MenuItem("Quit", lambda: icon.stop())))
 
     threading.Thread(target=capture_loop, daemon=True).start()
+    threading.Thread(target=vts_bridge, daemon=True).start()
     icon.run()
 
 
