@@ -167,7 +167,7 @@ DEMO = """<!doctype html><html><head><meta charset="utf-8"><title>Voice Mood —
 <script>
 // scripted cycle through every state so all looks are visible without talking:
 // [name, color, energy] — energy drives dot breathing + level bar
-const ST=[['neutral','#9aa5b5',0.45],['focused','#4ea1f7',0.6],['cheerful','#ffd166',0.7],['excited','#f2b134',0.9],['calm','#6fd3c7',0.35],['tired','#7a86c8',0.25],['idle','#5b6472',0.1]];
+const ST=[['neutral','#9aa5b5',0.45],['focused','#4ea1f7',0.6],['cheerful','#ffd166',0.7],['excited','#f2b134',0.9],['driven','#2ec4b6',0.75],['warm','#ef8fa3',0.5],['calm','#6fd3c7',0.35],['tired','#7a86c8',0.25],['frustrated','#e07a5f',0.8],['idle','#5b6472',0.1]];
 let i=0,cur=ST[0][2],phase=0,last=performance.now();
 function step(){
  const s=ST[i];
@@ -253,8 +253,9 @@ def voiced_ratio(chunk):
     return voiced / max(n, 1)
 
 
-COLORS = {"excited": "#f2b134", "cheerful": "#ffd166", "focused": "#4ea1f7",
-          "calm": "#6fd3c7", "tired": "#7a86c8", "neutral": "#9aa5b5",
+COLORS = {"excited": "#f2b134", "cheerful": "#ffd166", "warm": "#ef8fa3",
+          "focused": "#4ea1f7", "driven": "#2ec4b6", "calm": "#6fd3c7",
+          "tired": "#7a86c8", "frustrated": "#e07a5f", "neutral": "#9aa5b5",
           "idle": "#5b6472"}
 SMOOTH = {}                    # EMA-smoothed z-scores + voiced ratio
 REF = {}                       # per-feature running center and deviation
@@ -280,26 +281,31 @@ def zscore(key, value):
 
 
 def candidate(ze, zp, zsp, voiced):
-    """Seven-label taxonomy over the speaker's own z-scored baseline:
-    arousal (loudness/talk-time) crossed with expressiveness (pitch height
-    and intonation variety). Ordering matters — most specific first.
-    Thresholds are deliberately low: 'neutral' should be the quiet-room
-    fallback, not where most speech lands."""
+    """Ten-label taxonomy over the speaker's own z-scored baseline, laid out
+    on two axes: arousal (loudness + talk-time) and warmth/expressiveness
+    (pitch height + intonation variety). Ordering matters — most specific
+    first. 'neutral' is the quiet-room fallback, not where speech lands."""
     energetic = ze > 0.4 or voiced > 0.65
     bright = zp > 0.25
     lively = zsp > 0.4
+    flat = zsp < 0.08                      # truly clipped, near-monotone
+    talking = voiced > 0.35
     if energetic and lively:
         return "excited"                 # loud, fast, wide melody
+    if energetic and flat and voiced > 0.6:
+        return "frustrated"              # loud, fast, clipped monotone
     if energetic and bright:
-        return "cheerful"                # bright and up-tempo, steadier melody
-    if voiced > 0.5 and ze > -0.6:
-        return "focused"                 # steady stream of words
-    if bright and voiced > 0.3:
-        return "cheerful"                # light lifted tone
-    if lively and voiced > 0.35:
+        return "cheerful"                # bright and up-tempo
+    if energetic:
+        return "driven"                  # high output, steady pitch
+    if bright and voiced > 0.3 and ze < 0.3:
+        return "warm"                    # soft bright tone, easy pace
+    if bright and talking:
         return "cheerful"
-    if voiced > 0.35:
-        return "focused"                 # any real talking beats neutral
+    if lively and talking:
+        return "cheerful"
+    if talking:
+        return "focused"                 # any steady talking beats neutral
     if ze < -0.7:
         return "tired"                   # quiet, below own norm
     if ze < -0.3:

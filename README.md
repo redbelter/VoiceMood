@@ -21,9 +21,12 @@ page designed for OBS Browser Sources. A tray icon reflects the current mood.
 |---|---|---|
 | excited | loud/fast + wide melody | amber |
 | cheerful | bright pitch, up-tempo | gold |
-| focused | steady talk time, level pitch | blue |
-| calm | gentle, even, unhurried | teal |
+| warm | soft, bright, easy pace | rose |
+| focused | steady stream of words | blue |
+| driven | high output, steady pitch | teal-green |
+| calm | gentle, unhurried | teal |
 | tired | quiet and sparse, below own norm | lavender |
+| frustrated | loud/fast, clipped monotone | terracotta |
 | neutral | baseline | grey |
 | idle | sustained silence / muted mic | dark grey |
 
