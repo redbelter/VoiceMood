@@ -282,24 +282,28 @@ def zscore(key, value):
 def candidate(ze, zp, zsp, voiced):
     """Seven-label taxonomy over the speaker's own z-scored baseline:
     arousal (loudness/talk-time) crossed with expressiveness (pitch height
-    and intonation variety). Ordering matters — most specific first."""
-    energetic = ze > 0.5 or voiced > 0.72
-    bright = zp > 0.35
-    lively = zsp > 0.5
+    and intonation variety). Ordering matters — most specific first.
+    Thresholds are deliberately low: 'neutral' should be the quiet-room
+    fallback, not where most speech lands."""
+    energetic = ze > 0.4 or voiced > 0.65
+    bright = zp > 0.25
+    lively = zsp > 0.4
     if energetic and lively:
         return "excited"                 # loud, fast, wide melody
     if energetic and bright:
         return "cheerful"                # bright and up-tempo, steadier melody
-    if voiced > 0.6 and ze > -0.5:
-        return "focused"                 # steady stream of words, level pitch
-    if bright and voiced > 0.35:
-        return "cheerful"                # light lifted tone, moderate pace
-    if lively and voiced > 0.4:
+    if voiced > 0.5 and ze > -0.6:
+        return "focused"                 # steady stream of words
+    if bright and voiced > 0.3:
+        return "cheerful"                # light lifted tone
+    if lively and voiced > 0.35:
         return "cheerful"
-    if ze < -0.8 and voiced < 0.5:
-        return "tired"                   # quiet, sparse, below own norm
-    if ze < -0.4 and voiced < 0.6:
-        return "calm"                    # gentle, even, unhurried
+    if voiced > 0.35:
+        return "focused"                 # any real talking beats neutral
+    if ze < -0.7:
+        return "tired"                   # quiet, below own norm
+    if ze < -0.3:
+        return "calm"                    # gentle, unhurried
     return "neutral"
 
 
