@@ -1,0 +1,159 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Voice Mood — visualizer mockups</title>
+<style>
+ html,body{background:transparent;}
+ body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;color:var(--foreground,#e8ecf3);}
+ #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:18px;padding:18px;}
+ .cell{border:1px solid var(--border,#333);border-radius:10px;overflow:hidden;}
+ .cap{font-size:12px;font-weight:600;color:var(--muted-foreground,#98a2b3);padding:6px 10px;}
+ .footage{height:160px;position:relative;overflow:hidden;
+   background:linear-gradient(160deg,#232c38 0%,#5f7080 45%,#93a3b2 70%,#39434f 100%);}
+ .hud{position:absolute;right:14px;bottom:12px;}
+ .word{font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.8);}
+ .v1 canvas{display:block;}
+ .v1 .word{font-family:'Courier New',monospace;color:#5aff9a;font-size:15px;
+   text-shadow:1px 0 #ff5f6d,-1px 0 #57c7ff;text-align:right;margin-top:2px;}
+ .v2 .hud{display:flex;align-items:flex-end;gap:4px;height:64px;}
+ .v2 .b{width:9px;min-height:3px;border-radius:2px;background:#8cc0ff;}
+ .v3 .hud{text-align:right;}
+ .v3 .seg{display:inline-block;width:12px;height:9px;border-radius:2px;margin-left:2px;background:rgba(255,255,255,.18);}
+ .v3 .word{font-size:18px;margin-top:4px;}
+ .v4 .hud{width:74px;height:74px;position:absolute;right:24px;bottom:30px;}
+ .v4 .core{position:absolute;inset:26px;border-radius:50%;}
+ .v4 .ring{position:absolute;inset:0;border:2px solid;border-radius:50%;opacity:.7;animation:pulse 2s ease-out infinite;}
+ @keyframes pulse{0%{transform:scale(.45);opacity:.8}80%{transform:scale(1);opacity:0}100%{opacity:0}}
+ .v4 .word{position:absolute;top:78px;left:-40px;width:150px;text-align:center;font-size:16px;}
+ .v5 canvas{display:block;}
+ .v5 .word{font-size:15px;text-align:right;}
+ .v6 .hud{width:86px;height:86px;position:absolute;right:20px;bottom:26px;}
+ .v6 svg{display:block;}
+ .v6 .word{position:absolute;top:90px;left:-52px;width:190px;text-align:center;font-size:15px;}
+ .v7 canvas{display:block;}
+ .v8 .hud{display:flex;align-items:center;gap:10px;}
+ .v8 .core{width:16px;height:16px;border-radius:50%;transition:transform .6s;}
+ .v8 .word{font-size:22px;}
+ .v9 .hud{display:flex;flex-direction:column-reverse;gap:3px;align-items:center;}
+ .v9 .seg{width:30px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);}
+ .v10 .hud{left:0;right:0;bottom:0;}
+ .v10 .wrap{display:flex;align-items:center;gap:12px;background:rgba(8,12,20,.75);padding:6px 18px;}
+ .v10 canvas{flex:1;height:34px;} .v10 .word{font-size:16px;}
+</style></head><body>
+<div id="grid"></div>
+<script>
+const C={animated:'#f2b134',engaged:'#4ea1f7','low-energy':'#7a86c8',neutral:'#9aa5b5',silent:'#5b6472',starting:'#9aa5b5'};
+const NAMES=['CRT oscilloscope — green trace + phosphor word','EQ bars — bouncing bands (music-player style)',
+ 'VU ladder — hardware meter segments','Pulse rings — breathing circle, ripple on speech',
+ 'History strip — baked trace columns (matches heart-rate panel)','Radial spokes — spectrum rays around dot',
+ 'Twin waves — stacked moving lines','Breathe dot — minimal scale-pulse','LED ladder — vertical console strip',
+ 'Bottom scope bar — full-width oscilloscope'];
+let env=0.3,target=0.3,col=C.neutral,mood='neutral',phase=0,hist=[],built=false;
+const bands=[0,0,0,0,0,0];
+function build(){
+ let cells='';
+ cells+='<div class="cell"><div class="cap">1. '+NAMES[0]+'</div><div class="footage v1"><div class="hud"><canvas id="c1" width="230" height="56"></canvas><div class="word" id="w1">neutral</div></div></div></div>';
+ cells+='<div class="cell"><div class="cap">2. '+NAMES[1]+'</div><div class="footage v2"><div class="hud" id="b2"></div></div></div>';
+ cells+='<div class="cell"><div class="cap">3. '+NAMES[2]+'</div><div class="footage v3"><div class="hud"><div id="s3"></div><div class="word" id="w3">neutral</div></div></div></div>';
+ cells+='<div class="cell"><div class="cap">4. '+NAMES[3]+'</div><div class="footage v4"><div class="hud"><div class="ring"></div><div class="ring" style="animation-delay:.7s"></div><div class="core" id="c4"></div><div class="word" id="w4">neutral</div></div></div></div>';
+ cells+='<div class="cell"><div class="cap">5. '+NAMES[4]+'</div><div class="footage v5"><div class="hud"><canvas id="c5" width="210" height="62"></canvas><div class="word" id="w5">neutral</div></div></div></div>';
+ cells+='<div class="cell"><div class="cap">6. '+NAMES[5]+'</div><div class="footage v6"><div class="hud"><svg id="s6" width="86" height="86" viewBox="0 0 86 86"></svg><div class="word" id="w6">neutral</div></div></div></div>';
+ cells+='<div class="cell"><div class="cap">7. '+NAMES[6]+'</div><div class="footage v7"><div class="hud"><canvas id="c7" width="190" height="60"></canvas></div></div></div>';
+ cells+='<div class="cell"><div class="cap">8. '+NAMES[7]+'</div><div class="footage v8"><div class="hud"><div class="core" id="c8"></div><div class="word" id="w8">neutral</div></div></div></div>';
+ cells+='<div class="cell"><div class="cap">9. '+NAMES[8]+'</div><div class="footage v9"><div class="hud" id="s9"></div></div></div>';
+ cells+='<div class="cell"><div class="cap">10. '+NAMES[9]+'</div><div class="footage v10"><div class="hud"><div class="wrap"><span class="word" id="w10">neutral</span><canvas id="c10" width="330" height="34"></canvas></div></div></div></div>';
+ document.getElementById('grid').innerHTML=cells;
+ var cs=document.querySelectorAll('.cell');
+ for(var i=0;i<cs.length;i++){cs[i].setAttribute('data-hermes-send','Apply mockup '+(i+1)+' ('+NAMES[i]+') to voice_mood.py');}
+ var b2=document.getElementById('b2');
+ if(b2){b2.innerHTML='';for(var k=0;k<6;k++){var d=document.createElement('div');d.className='b';b2.appendChild(d)}}
+ var s3=document.getElementById('s3');
+ if(s3){s3.innerHTML='';for(var k2=0;k2<10;k2++){var d2=document.createElement('span');d2.className='seg';s3.appendChild(d2)}}
+ var s9=document.getElementById('s9');
+ if(s9){s9.innerHTML='';for(var k3=0;k3<8;k3++){var d3=document.createElement('div');d3.className='seg';s9.appendChild(d3)}}
+ built=true;
+}
+function setWords(){
+ ['w1','w3','w4','w5','w6','w8','w10'].forEach(function(id){
+   var el=document.getElementById(id);
+   if(el){el.textContent=mood;el.style.color=col}
+ });
+ var c4=document.getElementById('c4');if(c4){c4.style.background=col}
+ var c8=document.getElementById('c8');if(c8){c8.style.background=col;c8.style.transform='scale('+(0.7+env*0.8).toFixed(2)+')';}
+ document.querySelectorAll('.v4 .ring').forEach(function(r){r.style.borderColor=col});
+}
+function drawScope(id,color,w,h){
+ var cv=document.getElementById(id);if(!cv||!cv.getContext)return;
+ var ctx=cv.getContext('2d');ctx.clearRect(0,0,w,h);
+ ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+ for(var x=0;x<w;x++){
+   var t=phase-x*0.045;
+   var y=h/2+Math.sin(t*4)*(h*0.18)*(0.3+env)+Math.sin(t*9.3)*(h*0.1)*env;
+   if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+ }
+ ctx.stroke();
+}
+function drawStrip(){
+ var cv=document.getElementById('c5');if(!cv||!cv.getContext)return;
+ var ctx=cv.getContext('2d');var w=210,h=62;ctx.clearRect(0,0,w,h);
+ if(hist.length>w)hist=hist.slice(hist.length-w);
+ ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.beginPath();
+ for(var x=0;x<hist.length;x++){
+   var y=h-6-hist[x]*(h-12);
+   if(x===0)ctx.moveTo(w-hist.length+x,y);else ctx.lineTo(w-hist.length+x,y);
+ }
+ ctx.stroke();
+ if(hist.length){ctx.fillStyle=col;ctx.fillRect(w-2,h-6-hist[hist.length-1]*(h-12)-2,3,4)}
+}
+function drawSpokes(){
+ var svg=document.getElementById('s6');if(!svg)return;
+ var out='<circle cx="43" cy="43" r="10" fill="'+col+'"/>';
+ for(var i=0;i<12;i++){
+   var a=i*Math.PI/6;
+   var len=12+env*(0.6+0.4*Math.sin(phase*3+i))*(8+env*10);
+   var x1=43+Math.cos(a)*14,y1=43+Math.sin(a)*14,x2=43+Math.cos(a)*(14+len),y2=43+Math.sin(a)*(14+len);
+   out+='<line x1="'+x1.toFixed(1)+'" y1="'+y1.toFixed(1)+'" x2="'+x2.toFixed(1)+'" y2="'+y2.toFixed(1)+'" stroke="'+col+'" stroke-width="3" stroke-linecap="round"/>';
+ }
+ svg.innerHTML=out;
+}
+function paint(){
+ if(!built)return;
+ setWords();
+ var b2=document.getElementById('b2');
+ if(b2)for(var i=0;i<b2.children.length;i++){
+   b2.children[i].style.height=(4+bands[i]*54).toFixed(1)+'px';
+   b2.children[i].style.background=col;
+ }
+ var s3=document.getElementById('s3');
+ if(s3){var n=Math.round(env*10);for(var j=0;j<s3.children.length;j++){
+   s3.children[j].style.background=j<n?col:'rgba(255,255,255,.18)';}}
+ var s9=document.getElementById('s9');
+ if(s9){var n9=Math.round(env*8);for(var j9=0;j9<s9.children.length;j9++){
+   s9.children[j9].style.background=j9<n9?col:'rgba(255,255,255,.18)';}}
+ drawScope('c1','#5aff9a',230,56);
+ drawStrip();
+ drawScope('c7',col,190,60);
+ drawSpokes();
+ drawScope('c10','#8cc0ff',330,34);
+}
+var last=0;
+function frame(now){
+ var dt=Math.min(0.06,((now-last)/1000)||0.016);last=now;
+ env+=(target-env)*Math.min(1,dt*6);
+ phase+=dt*(2+env*6);
+ hist.push(Math.max(0,Math.min(1,env+Math.sin(phase*4)*env*0.25)));
+ for(var i=0;i<bands.length;i++){
+   var tgt=env*(0.5+0.5*Math.abs(Math.sin(phase*(1.3+i*0.35)+i)));
+   bands[i]+=(tgt-bands[i])*Math.min(1,dt*12);
+ }
+ paint();
+ requestAnimationFrame(frame);
+}
+async function poll(){
+ try{const r=await fetch('http://127.0.0.1:5095/status',{cache:'no-store'});const s=await r.json();
+  mood=s.mood||'neutral';col=C[mood]||C.neutral;
+  target=Math.max(0.08,Math.min(1,(s.voiced||0)*0.8+Math.max(0,s.loud_rel||0)*0.06));
+ }catch(e){
+  mood='engaged';col=C.engaged;target=0.7;
+ }
+ setTimeout(poll,1200);
+}
+build();poll();requestAnimationFrame(frame);
+</script></body></html>
